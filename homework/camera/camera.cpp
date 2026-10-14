@@ -3,6 +3,8 @@
 #include <math/affine.hpp>
 #include <math/projection.hpp>
 
+#include <cmath>
+
 void Camera::handleEvent(SDL_Event const &event) {
     switch (event.type) {
     case SDL_EVENT_KEY_DOWN:
@@ -20,12 +22,28 @@ void Camera::handleEvent(SDL_Event const &event) {
 }
 
 void Camera::update(float dt) {
-    float const step = (m_keydown.contains(SDLK_SPACE) ? s_fastSpeed : s_speed) * dt;
+    const float step = (m_keydown.contains(SDLK_SPACE) ? s_fastSpeed : s_speed) * dt;
 
-    if (m_keydown.contains(SDLK_W)) m_position.z() -= step;
-    if (m_keydown.contains(SDLK_S)) m_position.z() += step;
-    if (m_keydown.contains(SDLK_A)) m_position.x() -= step;
-    if (m_keydown.contains(SDLK_D)) m_position.x() += step;
+    const math::vector3f forward = {
+        std::sin(m_yaw) * std::cos(m_pitch),
+        std::sin(m_pitch),
+        -std::cos(m_yaw) * std::cos(m_pitch)
+    };
+    const math::vector3f right = {
+        std::cos(m_yaw),
+        0.f,
+        std::sin(m_yaw)
+    };
+
+    math::vector3f direction = {0.f, 0.f, 0.f};
+    if (m_keydown.contains(SDLK_W)) direction += forward;
+    if (m_keydown.contains(SDLK_S)) direction -= forward;
+    if (m_keydown.contains(SDLK_A)) direction -= right;
+    if (m_keydown.contains(SDLK_D)) direction += right;
+
+    if (math::length_squared(direction) > 0.f) {
+        m_position += math::normalized(direction) * step;
+    }
 }
 
 math::matrix4f Camera::viewMatrix() const {
