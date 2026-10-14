@@ -8,6 +8,8 @@
 #include <webgpu.h>
 
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <exception>
 #include <filesystem>
 #include <iostream>
@@ -18,6 +20,8 @@ static std::filesystem::path const projectRoot = PROJECT_ROOT;
 struct Immediates {
     math::matrix4f model;
     math::vector4f color;
+    uint32_t isSun;
+    uint32_t padding[3];
 };
 
 template <typename T>
@@ -251,10 +255,13 @@ int main() try {
         wgpuRenderPassEncoderSetVertexBuffer(renderPass, 0, vertexBuffer, 0, WGPU_WHOLE_SIZE);
         wgpuRenderPassEncoderSetIndexBuffer(renderPass, indexBuffer, WGPUIndexFormat_Uint32, 0, WGPU_WHOLE_SIZE);
 
-        for (auto const &planet : planets) {
+        for (std::size_t i = 0; i < planets.size(); ++i) {
+            const auto &planet = planets[i];
+
             Immediates const immediates{
                 .model = math::transpose(planet.modelMatrix(time)),
                 .color = planet.color,
+                .isSun = i == 0 ? 1u : 0u,
             };
             wgpuRenderPassEncoderSetImmediates(renderPass, 0, &immediates, sizeof(immediates));
             wgpuRenderPassEncoderDrawIndexed(renderPass, static_cast<uint32_t>(sphere.indices.size()), 1, 0, 0, 0);
