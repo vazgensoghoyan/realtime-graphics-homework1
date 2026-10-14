@@ -5,9 +5,11 @@
 #include "stars.hpp"
 #include "scene.hpp"
 #include "sphere.hpp"
+#include "ring.hpp"
 #include "camera.hpp"
 
 #include <webgpu.h>
+#include <math/affine.hpp>
 
 #include <chrono>
 #include <cstddef>
@@ -110,7 +112,9 @@ WGPURenderPipeline createStarPipeline(WGPUDevice device, WGPUShaderModule shader
 }
 
 WGPURenderPipeline createPipeline(WGPUDevice device, WGPUShaderModule shaderModule,
-                                  WGPUTextureFormat surfaceFormat, WGPUBindGroupLayout cameraLayout) {
+                                  WGPUTextureFormat surfaceFormat, WGPUBindGroupLayout cameraLayout,
+                                  std::string_view fragmentEntryPoint = "fragmentMain",
+                                  WGPUCullMode cullMode = WGPUCullMode_Back) {
     WGPUPipelineLayoutDescriptor pipelineLayoutDescriptor = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
     pipelineLayoutDescriptor.immediateSize = sizeof(Immediates);
     pipelineLayoutDescriptor.bindGroupLayoutCount = 1;
@@ -124,7 +128,7 @@ WGPURenderPipeline createPipeline(WGPUDevice device, WGPUShaderModule shaderModu
 
     WGPUFragmentState fragmentState = WGPU_FRAGMENT_STATE_INIT;
     fragmentState.module = shaderModule;
-    fragmentState.entryPoint = {"fragmentMain", WGPU_STRLEN};
+    fragmentState.entryPoint = {fragmentEntryPoint.data(), WGPU_STRLEN};
     fragmentState.targetCount = 1;
     fragmentState.targets = &colorTargetState;
 
@@ -157,7 +161,7 @@ WGPURenderPipeline createPipeline(WGPUDevice device, WGPUShaderModule shaderModu
     renderPipelineDescriptor.vertex.buffers = &vertexLayout;
     renderPipelineDescriptor.primitive.topology = WGPUPrimitiveTopology_TriangleList;
     renderPipelineDescriptor.primitive.frontFace = WGPUFrontFace_CCW;
-    renderPipelineDescriptor.primitive.cullMode = WGPUCullMode_Back;
+    renderPipelineDescriptor.primitive.cullMode = cullMode;
     renderPipelineDescriptor.fragment = &fragmentState;
     renderPipelineDescriptor.depthStencil = &depthState;
 
@@ -223,10 +227,17 @@ int main() try {
     WGPUBuffer starIndexBuffer = loadBuffer(app.device(), app.queue(), starSphere.indices, WGPUBufferUsage_Index);
     WGPUBuffer starInstanceBuffer = loadBuffer(app.device(), app.queue(), stars, WGPUBufferUsage_Vertex);
 
-    // pipeline of drawing planets and sun
+    // pipeline of drawing planets and sun + separate for rings
     WGPUShaderModule shaderModule = createShaderModule(app.device(), projectRoot / "shader.wgsl");
     WGPUBindGroupLayout cameraLayout = createCameraBindGroupLayout(app.device());
     WGPURenderPipeline renderPipeline = createPipeline(app.device(), shaderModule, app.surfaceFormat(), cameraLayout);
+
+    WGPURenderPipeline ringRenderPipeline = createPipeline(app.device(), shaderModule, app.surfaceFormat(),
+                                                           cameraLayout, "ringFragmentMain", WGPUCullMode_None);
+
+    const ObjMesh ringMesh = generateRing(1.4f, 2.4f);
+    WGPUBuffer ringVertexBuffer = loadBuffer(app.device(), app.queue(), ringMesh.vertices, WGPUBufferUsage_Vertex);
+    WGPUBuffer ringIndexBuffer = loadBuffer(app.device(), app.queue(), ringMesh.indices, WGPUBufferUsage_Index);
 
     const ObjMesh celestialSphere = generateSphere(32, 16);
     WGPUBuffer celestialVertexBuffer = loadBuffer(app.device(), app.queue(), celestialSphere.vertices, WGPUBufferUsage_Vertex);
@@ -383,6 +394,26 @@ int main() try {
                 wgpuRenderPassEncoderDrawIndexed(renderPass, celestialSphere.indices.size(), 1, 0, 0, 0);
             }
 
+            {
+                const auto &ringPlanet = planets.at(7);
+                const auto ringModel = math::translation(ringPlanet.position(time, planets))
+                                     * math::rotation_yz(0.25f)
+                                     * math::scale(math::vector3f{ringPlanet.radius, ringPlanet.radius, ringPlanet.radius});
+                Immediates const ringImmediates{
+                    .model = math::transpose(ringModel),
+                    .color = ringPlanet.color * 0.65f + math::vector4f{0.35f, 0.35f, 0.35f, 0.35f},
+                    .isSun = 0,
+                    .time = time,
+                    .materialSeed = ringPlanet.materialSeed,
+                };
+                wgpuRenderPassEncoderSetPipeline(renderPass, ringRenderPipeline);
+                wgpuRenderPassEncoderSetBindGroup(renderPass, 0, cameraBindGroup, 0, nullptr);
+                wgpuRenderPassEncoderSetVertexBuffer(renderPass, 0, ringVertexBuffer, 0, WGPU_WHOLE_SIZE);
+                wgpuRenderPassEncoderSetIndexBuffer(renderPass, ringIndexBuffer, WGPUIndexFormat_Uint32, 0, WGPU_WHOLE_SIZE);
+                wgpuRenderPassEncoderSetImmediates(renderPass, 0, &ringImmediates, sizeof(ringImmediates));
+                wgpuRenderPassEncoderDrawIndexed(renderPass, ringMesh.indices.size(), 1, 0, 0, 0);
+            }
+
             wgpuRenderPassEncoderEnd(renderPass);
             wgpuRenderPassEncoderRelease(renderPass);
         }
@@ -410,6 +441,10 @@ int main() try {
 
     wgpuBufferRelease(celestialVertexBuffer);
     wgpuBufferRelease(celestialIndexBuffer);
+
+    wgpuBufferRelease(ringVertexBuffer);
+    wgpuBufferRelease(ringIndexBuffer);
+    wgpuRenderPipelineRelease(ringRenderPipeline);
 
     wgpuBufferRelease(starInstanceBuffer);
     wgpuBufferRelease(starVertexBuffer);

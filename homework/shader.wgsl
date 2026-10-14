@@ -85,21 +85,31 @@ fn planetColor(localPosition: vec3f, color: vec3f, seed: f32) -> vec3f {
     return color * mix(0.55, 1.0, patches);
 }
 
+fn sunlightBrightness(worldPosition: vec3f, normal: vec3f) -> f32 {
+    let directionToSun = normalize(-worldPosition);
+    return 0.2 + max(dot(normalize(normal), directionToSun), 0.0);
+}
+
 @fragment
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
     if immediates.isSun == 1 {
         return vec4f(sunColor(input.localPosition, immediates.time), 1.0);
     }
 
-    let ambient = 0.2;
-    let normal = normalize(input.worldNormal);
-    let directionToSun = normalize(-input.worldPosition);
-
-    let diffuse = max(dot(normal, directionToSun), 0.0);
     let color = planetColor(input.localPosition, immediates.color.rgb, immediates.materialSeed);
 
     return vec4f(
-        color * (ambient + diffuse),
+        color * sunlightBrightness(input.worldPosition, input.worldNormal),
         immediates.color.a
     );
+}
+
+@fragment
+fn ringFragmentMain(input: VertexOutput, @builtin(front_facing) frontFacing: bool) -> @location(0) vec4f {
+    var normal = input.worldNormal;
+    if !frontFacing {
+        normal = -normal;
+    }
+
+    return vec4f(immediates.color.rgb * sunlightBrightness(input.worldPosition, normal), immediates.color.a);
 }
