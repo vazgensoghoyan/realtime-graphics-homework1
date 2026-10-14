@@ -106,6 +106,15 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 
 @fragment
 fn ringFragmentMain(input: VertexOutput, @builtin(front_facing) frontFacing: bool) -> @location(0) vec4f {
+    if immediates.isSun == 1 {
+        let radius = length(input.localPosition.xz);
+        let direction = normalize(input.localPosition.xz);
+        let rays = smoothstep(0.25, 0.75, noise3(vec3f(direction * 10.0, 4.0)));
+        let fade = 1.0 - smoothstep(1.0, 1.2, radius);
+        let opacity = 0.65 * fade * mix(0.15, 1.0, rays);
+        return vec4f(immediates.color.rgb, opacity);
+    }
+
     var normal = input.worldNormal;
     if !frontFacing {
         normal = -normal;

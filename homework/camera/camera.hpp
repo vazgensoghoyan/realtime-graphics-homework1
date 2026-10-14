@@ -11,6 +11,7 @@ public:
     void handleEvent(SDL_Event const &event);
     void update(float dt);
 
+    math::vector3f position() const { return m_position; }
     math::matrix4f viewMatrix() const;
     math::matrix4f projectionMatrix(float aspectRatio) const;
 

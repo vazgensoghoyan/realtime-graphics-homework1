@@ -12,12 +12,14 @@
 #include <math/affine.hpp>
 
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
 #include <filesystem>
 #include <iostream>
 #include <random>
+#include <string_view>
 
 static std::filesystem::path const projectRoot = PROJECT_ROOT;
 
@@ -114,7 +116,8 @@ WGPURenderPipeline createStarPipeline(WGPUDevice device, WGPUShaderModule shader
 WGPURenderPipeline createPipeline(WGPUDevice device, WGPUShaderModule shaderModule,
                                   WGPUTextureFormat surfaceFormat, WGPUBindGroupLayout cameraLayout,
                                   std::string_view fragmentEntryPoint = "fragmentMain",
-                                  WGPUCullMode cullMode = WGPUCullMode_Back) {
+                                  WGPUCullMode cullMode = WGPUCullMode_Back,
+                                  bool alphaBlend = false) {
     WGPUPipelineLayoutDescriptor pipelineLayoutDescriptor = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
     pipelineLayoutDescriptor.immediateSize = sizeof(Immediates);
     pipelineLayoutDescriptor.bindGroupLayoutCount = 1;
@@ -122,13 +125,18 @@ WGPURenderPipeline createPipeline(WGPUDevice device, WGPUShaderModule shaderModu
 
     WGPUPipelineLayout pipelineLayout = wgpuDeviceCreatePipelineLayout(device, &pipelineLayoutDescriptor);
 
+    WGPUBlendState blend = WGPU_BLEND_STATE_INIT;
+    blend.color = {WGPUBlendOperation_Add, WGPUBlendFactor_SrcAlpha, WGPUBlendFactor_OneMinusSrcAlpha};
+    blend.alpha = {WGPUBlendOperation_Add, WGPUBlendFactor_One, WGPUBlendFactor_OneMinusSrcAlpha};
+
     WGPUColorTargetState colorTargetState = WGPU_COLOR_TARGET_STATE_INIT;
     colorTargetState.format = surfaceFormat;
     colorTargetState.writeMask = WGPUColorWriteMask_All;
+    colorTargetState.blend = alphaBlend ? &blend : nullptr;
 
     WGPUFragmentState fragmentState = WGPU_FRAGMENT_STATE_INIT;
     fragmentState.module = shaderModule;
-    fragmentState.entryPoint = {fragmentEntryPoint.data(), WGPU_STRLEN};
+    fragmentState.entryPoint = {fragmentEntryPoint.data(), fragmentEntryPoint.size()};
     fragmentState.targetCount = 1;
     fragmentState.targets = &colorTargetState;
 
@@ -169,6 +177,23 @@ WGPURenderPipeline createPipeline(WGPUDevice device, WGPUShaderModule shaderModu
     wgpuPipelineLayoutRelease(pipelineLayout);
 
     return renderPipeline;
+}
+
+math::matrix4f glowModelMatrix(const math::vector3f &cameraPosition, const math::vector3f &center, float radius) {
+    const auto toCamera = cameraPosition - center;
+    const auto y = math::length_squared(toCamera) > 1e-8f
+                 ? math::normalized(toCamera) : math::vector3f{0.f, 0.f, 1.f};
+    const auto reference = std::abs(y[1]) > 0.999f
+                         ? math::vector3f{0.f, 0.f, 1.f} : math::vector3f{0.f, 1.f, 0.f};
+    const auto x = math::normalized(math::cross(reference, y));
+    const auto z = math::cross(x, y);
+
+    return {
+        radius * x[0], radius * y[0], radius * z[0], center[0],
+        radius * x[1], radius * y[1], radius * z[1], center[1],
+        radius * x[2], radius * y[2], radius * z[2], center[2],
+        0.f, 0.f, 0.f, 1.f,
+    };
 }
 
 WGPUBuffer createUniformBuffer(WGPUDevice device) {
@@ -233,11 +258,14 @@ int main() try {
     WGPURenderPipeline renderPipeline = createPipeline(app.device(), shaderModule, app.surfaceFormat(), cameraLayout);
 
     WGPURenderPipeline ringRenderPipeline = createPipeline(app.device(), shaderModule, app.surfaceFormat(),
-                                                           cameraLayout, "ringFragmentMain", WGPUCullMode_None);
+                                                           cameraLayout, "ringFragmentMain", WGPUCullMode_None, true);
 
     const ObjMesh ringMesh = generateRing(1.4f, 2.4f);
     WGPUBuffer ringVertexBuffer = loadBuffer(app.device(), app.queue(), ringMesh.vertices, WGPUBufferUsage_Vertex);
     WGPUBuffer ringIndexBuffer = loadBuffer(app.device(), app.queue(), ringMesh.indices, WGPUBufferUsage_Index);
+
+    const ObjMesh glowMesh = generateRing(0.95f, 1.2f, ringMesh.vertices.size() / 2);
+    WGPUBuffer glowVertexBuffer = loadBuffer(app.device(), app.queue(), glowMesh.vertices, WGPUBufferUsage_Vertex);
 
     const ObjMesh celestialSphere = generateSphere(32, 16);
     WGPUBuffer celestialVertexBuffer = loadBuffer(app.device(), app.queue(), celestialSphere.vertices, WGPUBufferUsage_Vertex);
@@ -305,7 +333,7 @@ int main() try {
             colorAttachment.view = targetView;
             colorAttachment.loadOp = WGPULoadOp_Clear;
             colorAttachment.storeOp = WGPUStoreOp_Store;
-            colorAttachment.clearValue = {0.01, 0.02, 0.03, 1.0}; // celestial color
+            colorAttachment.clearValue = {0.005, 0.01, 0.015, 1.0}; // celestial color
 
             WGPURenderPassDescriptor renderPassDescriptor = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
             renderPassDescriptor.colorAttachmentCount = 1;
@@ -414,6 +442,16 @@ int main() try {
                 wgpuRenderPassEncoderDrawIndexed(renderPass, ringMesh.indices.size(), 1, 0, 0, 0);
             }
 
+            const auto& sun = planets.at(0);
+            const Immediates glowImmediates{
+                .model = math::transpose(glowModelMatrix(camera.position(), sun.position(time, planets), sun.radius)),
+                .color = {1.f, 0.68f, 0.36f, 1.f},
+                .isSun = 1,
+            };
+            wgpuRenderPassEncoderSetVertexBuffer(renderPass, 0, glowVertexBuffer, 0, WGPU_WHOLE_SIZE);
+            wgpuRenderPassEncoderSetImmediates(renderPass, 0, &glowImmediates, sizeof(glowImmediates));
+            wgpuRenderPassEncoderDrawIndexed(renderPass, ringMesh.indices.size(), 1, 0, 0, 0);
+
             wgpuRenderPassEncoderEnd(renderPass);
             wgpuRenderPassEncoderRelease(renderPass);
         }
@@ -445,6 +483,8 @@ int main() try {
     wgpuBufferRelease(ringVertexBuffer);
     wgpuBufferRelease(ringIndexBuffer);
     wgpuRenderPipelineRelease(ringRenderPipeline);
+
+    wgpuBufferRelease(glowVertexBuffer);
 
     wgpuBufferRelease(starInstanceBuffer);
     wgpuBufferRelease(starVertexBuffer);
