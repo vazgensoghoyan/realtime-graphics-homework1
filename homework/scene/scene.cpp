@@ -18,8 +18,8 @@ math::matrix4f CelestialBody::modelMatrix(float time) const {
 }
 
 std::vector<CelestialBody> generateScene(uint32_t seed) {
-    constexpr unsigned planetCount = 10;
-    constexpr float orbitSpacing = 3.5f;
+    constexpr size_t planetCount = 10;
+    constexpr float orbitSpacing = 7.f;
     constexpr float sunRadius = 7.f;
     constexpr float orbitOffset = sunRadius;
     constexpr float tau = 2.f * std::numbers::pi_v<float>;
@@ -56,7 +56,7 @@ std::vector<CelestialBody> generateScene(uint32_t seed) {
     });
 
     // Generating planets parameteres
-    for (unsigned i = 1; i <= planetCount; ++i) {
+    for (size_t i = 1; i <= planetCount; ++i) {
         float const orbitRadius = orbitOffset + i * orbitSpacing + sample(-0.25f, 0.25f);
         float const radius = 0.28f + 0.12f * i + sample(-0.15f, 0.15f);
         float const phase = sample(0.f, tau);

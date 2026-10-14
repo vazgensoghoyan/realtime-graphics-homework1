@@ -1,3 +1,6 @@
-add_library(scene STATIC scene.cpp scene.hpp)
+add_library(scene STATIC
+    scene.cpp scene.hpp
+    stars.cpp stars.hpp
+)
 target_include_directories(scene PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(scene PUBLIC math)

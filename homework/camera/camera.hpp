@@ -21,7 +21,7 @@ private:
     static constexpr float s_pitchLimit = std::numbers::pi_v<float> / 2.f - 0.01f;
     static constexpr float s_verticalFov = std::numbers::pi_v<float> / 3.f;
     static constexpr float s_nearPlane = 0.1f;
-    static constexpr float s_farPlane = 150.f;
+    static constexpr float s_farPlane = 300.f;
 
     math::vector3f m_position{0.f, 0.f, 50.f};
     float m_yaw = 0.f;

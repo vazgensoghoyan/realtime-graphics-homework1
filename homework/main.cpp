@@ -1,9 +1,11 @@
 #include <wgpu_app.hpp>
 #include <file_utils.hpp>
 #include <obj_loader.hpp>
-#include <sphere.hpp>
-#include "camera.hpp"
+
+#include "stars.hpp"
 #include "scene.hpp"
+#include "sphere.hpp"
+#include "camera.hpp"
 
 #include <webgpu.h>
 
@@ -21,7 +23,6 @@ struct Immediates {
     math::matrix4f model;
     math::vector4f color;
     uint32_t isSun;
-    uint32_t padding[3];
 };
 
 template <typename T>
@@ -44,6 +45,66 @@ WGPUShaderModule createShaderModule(WGPUDevice device, std::filesystem::path con
     shaderModuleDescriptor.nextInChain = &shaderSourceWGSL.chain;
 
     return wgpuDeviceCreateShaderModule(device, &shaderModuleDescriptor);
+}
+
+WGPURenderPipeline createStarPipeline(WGPUDevice device, WGPUShaderModule shaderModule, WGPUTextureFormat surfaceFormat) {
+    WGPUPipelineLayoutDescriptor pipelineLayoutDescriptor = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
+    pipelineLayoutDescriptor.immediateSize = sizeof(math::matrix4f);
+
+    WGPUPipelineLayout pipelineLayout = wgpuDeviceCreatePipelineLayout(device, &pipelineLayoutDescriptor);
+
+    WGPUColorTargetState colorTargetState = WGPU_COLOR_TARGET_STATE_INIT;
+    colorTargetState.format = surfaceFormat;
+    colorTargetState.writeMask = WGPUColorWriteMask_All;
+
+    WGPUFragmentState fragmentState = WGPU_FRAGMENT_STATE_INIT;
+    fragmentState.module = shaderModule;
+    fragmentState.entryPoint = {"fragmentMain", WGPU_STRLEN};
+    fragmentState.targetCount = 1;
+    fragmentState.targets = &colorTargetState;
+
+    WGPUVertexAttribute positionAttribute = WGPU_VERTEX_ATTRIBUTE_INIT;
+    positionAttribute.offset = offsetof(ObjVertex, position);
+    positionAttribute.shaderLocation = 0;
+    positionAttribute.format = WGPUVertexFormat_Float32x3;
+
+    WGPUVertexAttribute instanceAttributes[2];
+    instanceAttributes[0] = WGPU_VERTEX_ATTRIBUTE_INIT;
+    instanceAttributes[0].offset = offsetof(StarInstance, radius);
+    instanceAttributes[0].shaderLocation = 1;
+    instanceAttributes[0].format = WGPUVertexFormat_Float32;
+    instanceAttributes[1] = WGPU_VERTEX_ATTRIBUTE_INIT;
+    instanceAttributes[1].offset = offsetof(StarInstance, center);
+    instanceAttributes[1].shaderLocation = 2;
+    instanceAttributes[1].format = WGPUVertexFormat_Float32x3;
+
+    WGPUVertexBufferLayout vertexLayouts[2];
+    vertexLayouts[0] = WGPU_VERTEX_BUFFER_LAYOUT_INIT;
+    vertexLayouts[0].arrayStride = sizeof(ObjVertex);
+    vertexLayouts[0].stepMode = WGPUVertexStepMode_Vertex;
+    vertexLayouts[0].attributeCount = 1;
+    vertexLayouts[0].attributes = &positionAttribute;
+    vertexLayouts[1] = WGPU_VERTEX_BUFFER_LAYOUT_INIT;
+    vertexLayouts[1].arrayStride = sizeof(StarInstance);
+    vertexLayouts[1].stepMode = WGPUVertexStepMode_Instance;
+    vertexLayouts[1].attributeCount = 2;
+    vertexLayouts[1].attributes = instanceAttributes;
+
+    WGPURenderPipelineDescriptor renderPipelineDescriptor = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
+    renderPipelineDescriptor.layout = pipelineLayout;
+    renderPipelineDescriptor.vertex.module = shaderModule;
+    renderPipelineDescriptor.vertex.entryPoint = {"vertexMain", WGPU_STRLEN};
+    renderPipelineDescriptor.vertex.bufferCount = 2;
+    renderPipelineDescriptor.vertex.buffers = vertexLayouts;
+    renderPipelineDescriptor.primitive.topology = WGPUPrimitiveTopology_TriangleList;
+    renderPipelineDescriptor.primitive.frontFace = WGPUFrontFace_CCW;
+    renderPipelineDescriptor.primitive.cullMode = WGPUCullMode_Back;
+    renderPipelineDescriptor.fragment = &fragmentState;
+
+    WGPURenderPipeline renderPipeline = wgpuDeviceCreateRenderPipeline(device, &renderPipelineDescriptor);
+    wgpuPipelineLayoutRelease(pipelineLayout);
+
+    return renderPipeline;
 }
 
 WGPURenderPipeline createPipeline(WGPUDevice device, WGPUShaderModule shaderModule,
@@ -146,19 +207,32 @@ int main() try {
     // for convenient moving
     app.grab_mouse(true);
 
+    const auto seed = std::random_device{}();
+    std::cout << "Scene seed: " << seed << std::endl;
+
+    // initialization for stars
+    const auto stars = generateStars(seed);
+
+    WGPUShaderModule starsShaderModule = createShaderModule(app.device(), projectRoot / "stars.wgsl");
+    WGPURenderPipeline starsRenderPipeline = createStarPipeline(app.device(), starsShaderModule, app.surfaceFormat());
+
+    const ObjMesh starSphere = generateSphere(3, 4);
+    WGPUBuffer starVertexBuffer = loadBuffer(app.device(), app.queue(), starSphere.vertices, WGPUBufferUsage_Vertex);
+    WGPUBuffer starIndexBuffer = loadBuffer(app.device(), app.queue(), starSphere.indices, WGPUBufferUsage_Index);
+    WGPUBuffer starInstanceBuffer = loadBuffer(app.device(), app.queue(), stars, WGPUBufferUsage_Vertex);
+
+    // pipeline of drawing planets and sun
     WGPUShaderModule shaderModule = createShaderModule(app.device(), projectRoot / "shader.wgsl");
     WGPUBindGroupLayout cameraLayout = createCameraBindGroupLayout(app.device());
     WGPURenderPipeline renderPipeline = createPipeline(app.device(), shaderModule, app.surfaceFormat(), cameraLayout);
 
-    ObjMesh const sphere = generateSphere(32, 16);
-    WGPUBuffer vertexBuffer = loadBuffer(app.device(), app.queue(), sphere.vertices, WGPUBufferUsage_Vertex);
-    WGPUBuffer indexBuffer = loadBuffer(app.device(), app.queue(), sphere.indices, WGPUBufferUsage_Index);
+    const ObjMesh celestialSphere = generateSphere(32, 16);
+    WGPUBuffer celestialVertexBuffer = loadBuffer(app.device(), app.queue(), celestialSphere.vertices, WGPUBufferUsage_Vertex);
+    WGPUBuffer celestialIndexBuffer = loadBuffer(app.device(), app.queue(), celestialSphere.indices, WGPUBufferUsage_Index);
 
     WGPUBuffer cameraMatrixBuffer = createUniformBuffer(app.device());
     WGPUBindGroup cameraBindGroup = createBindGroup(app.device(), cameraLayout, cameraMatrixBuffer);
 
-    const auto seed = std::random_device{}();
-    std::cout << "Scene seed: " << seed << std::endl;
     const auto planets = generateScene(seed);
 
     WGPUTexture depthBuffer = nullptr;
@@ -195,26 +269,6 @@ int main() try {
             continue;
         }
 
-        const bool resized = !depthBuffer || wgpuTextureGetWidth(depthBuffer) != app.width() || wgpuTextureGetHeight(depthBuffer) != app.height();
-
-        if (resized) {
-            if (depthView) wgpuTextureViewRelease(depthView);
-            if (depthBuffer) wgpuTextureRelease(depthBuffer);
-
-            WGPUExtent3D extent = WGPU_EXTENT_3D_INIT;
-            extent.width = app.width();
-            extent.height = app.height();
-
-            WGPUTextureDescriptor descriptor = WGPU_TEXTURE_DESCRIPTOR_INIT;
-            descriptor.dimension = WGPUTextureDimension_2D;
-            descriptor.size = extent;
-            descriptor.format = WGPUTextureFormat_Depth24Plus;
-            descriptor.usage = WGPUTextureUsage_RenderAttachment;
-
-            depthBuffer = wgpuDeviceCreateTexture(app.device(), &descriptor);
-            depthView = wgpuTextureCreateView(depthBuffer, nullptr);
-        }
-
         auto const now = std::chrono::high_resolution_clock::now();
         float const dt = std::chrono::duration<float>(now - lastFrameStart).count();
         time += dt;
@@ -231,44 +285,105 @@ int main() try {
 
         WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(app.device(), nullptr);
 
-        WGPURenderPassColorAttachment colorAttachment = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
-        colorAttachment.view = targetView;
-        colorAttachment.loadOp = WGPULoadOp_Clear;
-        colorAttachment.storeOp = WGPUStoreOp_Store;
-        colorAttachment.clearValue = {0.01, 0.02, 0.03, 1.0};
+        // STARS PIPELINE
 
-        WGPURenderPassDepthStencilAttachment depthAttachment = WGPU_RENDER_PASS_DEPTH_STENCIL_ATTACHMENT_INIT;
-        depthAttachment.view = depthView;
-        depthAttachment.depthLoadOp = WGPULoadOp_Clear;
-        depthAttachment.depthStoreOp = WGPUStoreOp_Discard;
-        depthAttachment.depthClearValue = 1.f;
+        {
+            WGPURenderPassColorAttachment colorAttachment = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
+            colorAttachment.view = targetView;
+            colorAttachment.loadOp = WGPULoadOp_Clear;
+            colorAttachment.storeOp = WGPUStoreOp_Store;
+            colorAttachment.clearValue = {0.01, 0.02, 0.03, 1.0}; // celestial color
 
-        WGPURenderPassDescriptor renderPassDescriptor = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
-        renderPassDescriptor.colorAttachmentCount = 1;
-        renderPassDescriptor.colorAttachments = &colorAttachment;
-        renderPassDescriptor.depthStencilAttachment = &depthAttachment;
-        WGPURenderPassEncoder renderPass = wgpuCommandEncoderBeginRenderPass(encoder, &renderPassDescriptor);
+            WGPURenderPassDescriptor renderPassDescriptor = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
+            renderPassDescriptor.colorAttachmentCount = 1;
+            renderPassDescriptor.colorAttachments = &colorAttachment;
 
-        wgpuRenderPassEncoderSetPipeline(renderPass, renderPipeline);
-        wgpuRenderPassEncoderSetBindGroup(renderPass, 0, cameraBindGroup, 0, nullptr);
+            WGPURenderPassEncoder renderPass = wgpuCommandEncoderBeginRenderPass(encoder, &renderPassDescriptor);
 
-        wgpuRenderPassEncoderSetVertexBuffer(renderPass, 0, vertexBuffer, 0, WGPU_WHOLE_SIZE);
-        wgpuRenderPassEncoderSetIndexBuffer(renderPass, indexBuffer, WGPUIndexFormat_Uint32, 0, WGPU_WHOLE_SIZE);
+            wgpuRenderPassEncoderSetPipeline(renderPass, starsRenderPipeline);
 
-        for (std::size_t i = 0; i < planets.size(); ++i) {
-            const auto &planet = planets[i];
+            // Removing camera translation keeps the background infinitely distant.
+            auto starView = view;
+            starView[0][3] = 0.f;
+            starView[1][3] = 0.f;
+            starView[2][3] = 0.f;
+            const auto starViewProjection = math::transpose(projection * starView);
+            wgpuRenderPassEncoderSetImmediates(renderPass, 0, &starViewProjection, sizeof(starViewProjection));
 
-            Immediates const immediates{
-                .model = math::transpose(planet.modelMatrix(time)),
-                .color = planet.color,
-                .isSun = i == 0 ? 1u : 0u,
-            };
-            wgpuRenderPassEncoderSetImmediates(renderPass, 0, &immediates, sizeof(immediates));
-            wgpuRenderPassEncoderDrawIndexed(renderPass, static_cast<uint32_t>(sphere.indices.size()), 1, 0, 0, 0);
+            wgpuRenderPassEncoderSetVertexBuffer(renderPass, 0, starVertexBuffer, 0, WGPU_WHOLE_SIZE);
+            wgpuRenderPassEncoderSetIndexBuffer(renderPass, starIndexBuffer, WGPUIndexFormat_Uint32, 0, WGPU_WHOLE_SIZE);
+
+            wgpuRenderPassEncoderSetVertexBuffer(renderPass, 1, starInstanceBuffer, 0, WGPU_WHOLE_SIZE);
+
+            wgpuRenderPassEncoderDrawIndexed(renderPass, starSphere.indices.size(), stars.size(), 0, 0, 0);
+
+            wgpuRenderPassEncoderEnd(renderPass);
+            wgpuRenderPassEncoderRelease(renderPass);
         }
 
-        wgpuRenderPassEncoderEnd(renderPass);
-        wgpuRenderPassEncoderRelease(renderPass);
+        // MAIN PIPELINE
+
+        {
+            const bool resized = !depthBuffer || wgpuTextureGetWidth(depthBuffer) != app.width() || wgpuTextureGetHeight(depthBuffer) != app.height();
+
+            if (resized) {
+                if (depthView) wgpuTextureViewRelease(depthView);
+                if (depthBuffer) wgpuTextureRelease(depthBuffer);
+
+                WGPUExtent3D extent = WGPU_EXTENT_3D_INIT;
+                extent.width = app.width();
+                extent.height = app.height();
+
+                WGPUTextureDescriptor descriptor = WGPU_TEXTURE_DESCRIPTOR_INIT;
+                descriptor.dimension = WGPUTextureDimension_2D;
+                descriptor.size = extent;
+                descriptor.format = WGPUTextureFormat_Depth24Plus;
+                descriptor.usage = WGPUTextureUsage_RenderAttachment;
+
+                depthBuffer = wgpuDeviceCreateTexture(app.device(), &descriptor);
+                depthView = wgpuTextureCreateView(depthBuffer, nullptr);
+            }
+
+            WGPURenderPassColorAttachment colorAttachment = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
+            colorAttachment.view = targetView;
+            colorAttachment.loadOp = WGPULoadOp_Load;
+            colorAttachment.storeOp = WGPUStoreOp_Store;
+
+            WGPURenderPassDepthStencilAttachment depthAttachment = WGPU_RENDER_PASS_DEPTH_STENCIL_ATTACHMENT_INIT;
+            depthAttachment.view = depthView;
+            depthAttachment.depthLoadOp = WGPULoadOp_Clear;
+            depthAttachment.depthStoreOp = WGPUStoreOp_Discard;
+            depthAttachment.depthClearValue = 1.f;
+
+            WGPURenderPassDescriptor renderPassDescriptor = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
+            renderPassDescriptor.colorAttachmentCount = 1;
+            renderPassDescriptor.colorAttachments = &colorAttachment;
+            renderPassDescriptor.depthStencilAttachment = &depthAttachment;
+            WGPURenderPassEncoder renderPass = wgpuCommandEncoderBeginRenderPass(encoder, &renderPassDescriptor);
+
+            wgpuRenderPassEncoderSetPipeline(renderPass, renderPipeline);
+            wgpuRenderPassEncoderSetBindGroup(renderPass, 0, cameraBindGroup, 0, nullptr);
+
+            wgpuRenderPassEncoderSetVertexBuffer(renderPass, 0, celestialVertexBuffer, 0, WGPU_WHOLE_SIZE);
+            wgpuRenderPassEncoderSetIndexBuffer(renderPass, celestialIndexBuffer, WGPUIndexFormat_Uint32, 0, WGPU_WHOLE_SIZE);
+
+            for (std::size_t i = 0; i < planets.size(); ++i) {
+                const auto &planet = planets[i];
+
+                Immediates const immediates{
+                    .model = math::transpose(planet.modelMatrix(time)),
+                    .color = planet.color,
+                    .isSun = i == 0 ? 1u : 0u,
+                };
+                wgpuRenderPassEncoderSetImmediates(renderPass, 0, &immediates, sizeof(immediates));
+                wgpuRenderPassEncoderDrawIndexed(renderPass, celestialSphere.indices.size(), 1, 0, 0, 0);
+            }
+
+            wgpuRenderPassEncoderEnd(renderPass);
+            wgpuRenderPassEncoderRelease(renderPass);
+        }
+
+        // SUBMITTING
 
         WGPUCommandBuffer commandBuffer = wgpuCommandEncoderFinish(encoder, nullptr);
         wgpuCommandEncoderRelease(encoder);
@@ -289,8 +404,14 @@ int main() try {
     wgpuBufferRelease(cameraMatrixBuffer);
     wgpuBindGroupLayoutRelease(cameraLayout);
 
-    wgpuBufferRelease(vertexBuffer);
-    wgpuBufferRelease(indexBuffer);
+    wgpuBufferRelease(celestialVertexBuffer);
+    wgpuBufferRelease(celestialIndexBuffer);
+
+    wgpuBufferRelease(starInstanceBuffer);
+    wgpuBufferRelease(starVertexBuffer);
+    wgpuBufferRelease(starIndexBuffer);
+    wgpuRenderPipelineRelease(starsRenderPipeline);
+    wgpuShaderModuleRelease(starsShaderModule);
 
     wgpuRenderPipelineRelease(renderPipeline);
     wgpuShaderModuleRelease(shaderModule);
