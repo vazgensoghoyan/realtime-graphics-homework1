@@ -35,7 +35,7 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
         return immediates.color;
     }
 
-    let ambient = 0.05;
+    let ambient = 0.1;
     let normal = normalize(input.worldNormal);
     let directionToSun = normalize(-input.worldPosition);
 

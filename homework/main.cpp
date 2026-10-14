@@ -371,7 +371,7 @@ int main() try {
                 const auto &planet = planets[i];
 
                 Immediates const immediates{
-                    .model = math::transpose(planet.modelMatrix(time)),
+                    .model = math::transpose(planet.modelMatrix(time, planets)),
                     .color = planet.color,
                     .isSun = i == 0 ? 1u : 0u,
                 };

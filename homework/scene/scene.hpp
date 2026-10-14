@@ -13,8 +13,10 @@ struct CelestialBody {
     float orbitRadius;
     float orbitPhase;
 
-    math::vector3f position(float time) const;
-    math::matrix4f modelMatrix(float time) const;
+    uint32_t parentIndex;
+
+    math::vector3f position(float time, const std::vector<CelestialBody>& bodies) const;
+    math::matrix4f modelMatrix(float time, const std::vector<CelestialBody>& bodies) const;
 };
 
 // sun is first; same seed reproduces same scene
