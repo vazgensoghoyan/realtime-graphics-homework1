@@ -16,7 +16,7 @@
 static std::filesystem::path const projectRoot = PROJECT_ROOT;
 
 struct Immediates {
-    math::matrix4f modelViewProjection;
+    math::matrix4f model;
     math::vector4f color;
 };
 
@@ -43,9 +43,11 @@ WGPUShaderModule createShaderModule(WGPUDevice device, std::filesystem::path con
 }
 
 WGPURenderPipeline createPipeline(WGPUDevice device, WGPUShaderModule shaderModule,
-                                  WGPUTextureFormat surfaceFormat) {
+                                  WGPUTextureFormat surfaceFormat, WGPUBindGroupLayout cameraLayout) {
     WGPUPipelineLayoutDescriptor pipelineLayoutDescriptor = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
     pipelineLayoutDescriptor.immediateSize = sizeof(Immediates);
+    pipelineLayoutDescriptor.bindGroupLayoutCount = 1;
+    pipelineLayoutDescriptor.bindGroupLayouts = &cameraLayout;
 
     WGPUPipelineLayout pipelineLayout = wgpuDeviceCreatePipelineLayout(device, &pipelineLayoutDescriptor);
 
@@ -59,16 +61,21 @@ WGPURenderPipeline createPipeline(WGPUDevice device, WGPUShaderModule shaderModu
     fragmentState.targetCount = 1;
     fragmentState.targets = &colorTargetState;
 
-    WGPUVertexAttribute positionAttribute = WGPU_VERTEX_ATTRIBUTE_INIT;
-    positionAttribute.offset = offsetof(ObjVertex, position);
-    positionAttribute.shaderLocation = 0;
-    positionAttribute.format = WGPUVertexFormat_Float32x3;
+    WGPUVertexAttribute attributes[2];
+    attributes[0] = WGPU_VERTEX_ATTRIBUTE_INIT;
+    attributes[0].offset = offsetof(ObjVertex, position);
+    attributes[0].shaderLocation = 0;
+    attributes[0].format = WGPUVertexFormat_Float32x3;
+    attributes[1] = WGPU_VERTEX_ATTRIBUTE_INIT;
+    attributes[1].offset = offsetof(ObjVertex, normal);
+    attributes[1].shaderLocation = 1;
+    attributes[1].format = WGPUVertexFormat_Float32x3;
 
     WGPUVertexBufferLayout vertexLayout = WGPU_VERTEX_BUFFER_LAYOUT_INIT;
     vertexLayout.arrayStride = sizeof(ObjVertex);
     vertexLayout.stepMode = WGPUVertexStepMode_Vertex;
-    vertexLayout.attributeCount = 1;
-    vertexLayout.attributes = &positionAttribute;
+    vertexLayout.attributeCount = 2;
+    vertexLayout.attributes = attributes;
 
     WGPUDepthStencilState depthState = WGPU_DEPTH_STENCIL_STATE_INIT;
     depthState.format = WGPUTextureFormat_Depth24Plus;
@@ -93,6 +100,42 @@ WGPURenderPipeline createPipeline(WGPUDevice device, WGPUShaderModule shaderModu
     return renderPipeline;
 }
 
+WGPUBuffer createUniformBuffer(WGPUDevice device) {
+    WGPUBufferDescriptor descriptor = WGPU_BUFFER_DESCRIPTOR_INIT;
+    descriptor.size = sizeof(math::matrix4f);
+    descriptor.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
+    return wgpuDeviceCreateBuffer(device, &descriptor);
+}
+
+WGPUBindGroupLayout createCameraBindGroupLayout(WGPUDevice device) {
+    WGPUBufferBindingLayout bindingLayout = WGPU_BUFFER_BINDING_LAYOUT_INIT;
+    bindingLayout.type = WGPUBufferBindingType_Uniform;
+    bindingLayout.minBindingSize = sizeof(math::matrix4f);
+
+    WGPUBindGroupLayoutEntry layoutEntry = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
+    layoutEntry.binding = 0;
+    layoutEntry.visibility = WGPUShaderStage_Vertex;
+    layoutEntry.buffer = bindingLayout;
+
+    WGPUBindGroupLayoutDescriptor layoutDescriptor = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
+    layoutDescriptor.entryCount = 1;
+    layoutDescriptor.entries = &layoutEntry;
+    return wgpuDeviceCreateBindGroupLayout(device, &layoutDescriptor);
+}
+
+WGPUBindGroup createBindGroup(WGPUDevice device, WGPUBindGroupLayout layout, WGPUBuffer buffer) {
+    WGPUBindGroupEntry entry = WGPU_BIND_GROUP_ENTRY_INIT;
+    entry.binding = 0;
+    entry.buffer = buffer;
+    entry.size = sizeof(math::matrix4f);
+
+    WGPUBindGroupDescriptor descriptor = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
+    descriptor.layout = layout;
+    descriptor.entryCount = 1;
+    descriptor.entries = &entry;
+    return wgpuDeviceCreateBindGroup(device, &descriptor);
+}
+
 int main() try {
     WgpuApp app("Homework 1", 1280, 720, true);
 
@@ -100,11 +143,15 @@ int main() try {
     app.grab_mouse(true);
 
     WGPUShaderModule shaderModule = createShaderModule(app.device(), projectRoot / "shader.wgsl");
-    WGPURenderPipeline renderPipeline = createPipeline(app.device(), shaderModule, app.surfaceFormat());
+    WGPUBindGroupLayout cameraLayout = createCameraBindGroupLayout(app.device());
+    WGPURenderPipeline renderPipeline = createPipeline(app.device(), shaderModule, app.surfaceFormat(), cameraLayout);
 
     ObjMesh const sphere = generateSphere(32, 16);
     WGPUBuffer vertexBuffer = loadBuffer(app.device(), app.queue(), sphere.vertices, WGPUBufferUsage_Vertex);
     WGPUBuffer indexBuffer = loadBuffer(app.device(), app.queue(), sphere.indices, WGPUBufferUsage_Index);
+
+    WGPUBuffer cameraMatrixBuffer = createUniformBuffer(app.device());
+    WGPUBindGroup cameraBindGroup = createBindGroup(app.device(), cameraLayout, cameraMatrixBuffer);
 
     const auto seed = std::random_device{}();
     std::cout << "Scene seed: " << seed << std::endl;
@@ -173,6 +220,9 @@ int main() try {
         math::matrix4f const view = camera.viewMatrix();
         math::matrix4f const projection = camera.projectionMatrix(static_cast<float>(app.width()) / app.height());
 
+        const auto viewProjection = math::transpose(projection * view);
+        wgpuQueueWriteBuffer(app.queue(), cameraMatrixBuffer, 0, &viewProjection, sizeof(viewProjection));
+
         WGPUTextureView targetView = wgpuTextureCreateView(surfaceTexture->texture, nullptr);
 
         WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(app.device(), nullptr);
@@ -196,15 +246,15 @@ int main() try {
         WGPURenderPassEncoder renderPass = wgpuCommandEncoderBeginRenderPass(encoder, &renderPassDescriptor);
 
         wgpuRenderPassEncoderSetPipeline(renderPass, renderPipeline);
+        wgpuRenderPassEncoderSetBindGroup(renderPass, 0, cameraBindGroup, 0, nullptr);
 
         wgpuRenderPassEncoderSetVertexBuffer(renderPass, 0, vertexBuffer, 0, WGPU_WHOLE_SIZE);
         wgpuRenderPassEncoderSetIndexBuffer(renderPass, indexBuffer, WGPUIndexFormat_Uint32, 0, WGPU_WHOLE_SIZE);
 
-        const auto viewProjection = projection * view;
         for (auto const &planet : planets) {
             Immediates const immediates{
-                math::transpose(viewProjection * planet.modelMatrix(time)),
-                planet.color,
+                .model = math::transpose(planet.modelMatrix(time)),
+                .color = planet.color,
             };
             wgpuRenderPassEncoderSetImmediates(renderPass, 0, &immediates, sizeof(immediates));
             wgpuRenderPassEncoderDrawIndexed(renderPass, static_cast<uint32_t>(sphere.indices.size()), 1, 0, 0, 0);
@@ -227,6 +277,10 @@ int main() try {
 
     if (depthView) wgpuTextureViewRelease(depthView);
     if (depthBuffer) wgpuTextureRelease(depthBuffer);
+
+    wgpuBindGroupRelease(cameraBindGroup);
+    wgpuBufferRelease(cameraMatrixBuffer);
+    wgpuBindGroupLayoutRelease(cameraLayout);
 
     wgpuBufferRelease(vertexBuffer);
     wgpuBufferRelease(indexBuffer);
