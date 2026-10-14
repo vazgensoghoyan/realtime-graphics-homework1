@@ -23,6 +23,7 @@ struct Immediates {
     math::matrix4f model;
     math::vector4f color;
     uint32_t isSun;
+    float time;
 };
 
 template <typename T>
@@ -374,6 +375,7 @@ int main() try {
                     .model = math::transpose(planet.modelMatrix(time, planets)),
                     .color = planet.color,
                     .isSun = i == 0 ? 1u : 0u,
+                    .time = time,
                 };
                 wgpuRenderPassEncoderSetImmediates(renderPass, 0, &immediates, sizeof(immediates));
                 wgpuRenderPassEncoderDrawIndexed(renderPass, celestialSphere.indices.size(), 1, 0, 0, 0);
