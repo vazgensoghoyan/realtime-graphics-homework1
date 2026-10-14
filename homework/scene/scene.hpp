@@ -7,13 +7,15 @@
 
 struct CelestialBody {
     float radius;
-    float speed;
     math::vector4f color;
 
-    float orbitRadius;
-    float orbitPhase;
+    float speed = 0.f;
 
-    uint32_t parentIndex;
+    float orbitRadius = 0.f;
+    float orbitPhase = 0.f;
+
+    uint32_t parentIndex = 0;
+    float materialSeed = 0.f;
 
     math::vector3f position(float time, const std::vector<CelestialBody>& bodies) const;
     math::matrix4f modelMatrix(float time, const std::vector<CelestialBody>& bodies) const;

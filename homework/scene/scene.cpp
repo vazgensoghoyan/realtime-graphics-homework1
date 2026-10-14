@@ -39,8 +39,8 @@ math::matrix4f CelestialBody::modelMatrix(float time, const std::vector<Celestia
 std::vector<CelestialBody> generateScene(uint32_t seed) {
     constexpr float sceneScale = 0.5f;
     constexpr size_t planetCount = 10;
-    constexpr float orbitSpacing = 7.f;
-    constexpr float sunRadius = 7.f;
+    constexpr float orbitSpacing = 6.f;
+    constexpr float sunRadius = 9.f;
     constexpr float orbitOffset = sunRadius;
     constexpr float tau = 2.f * std::numbers::pi_v<float>;
 
@@ -70,28 +70,23 @@ std::vector<CelestialBody> generateScene(uint32_t seed) {
 
     bodies.push_back({
         .radius = sunRadius * sceneScale,
-        .speed = 0.f,
         .color = {1.f, 0.8f, 0.15f, 1.f},
-        .orbitRadius = 0.f,
-        .orbitPhase = 0.f,
-        .parentIndex = 0,
     });
 
     // generating planets
 
     for (size_t i = 1; i <= planetCount; ++i) {
         float const orbitRadius = orbitOffset + i * orbitSpacing + sample(-0.25f, 0.25f);
-        float const radius = 0.28f + 0.12f * i + sample(-0.15f, 0.15f);
+        float const radius = 0.30f + 0.15f * i + sample(-0.15f, 0.15f);
         float const phase = sample(0.f, tau);
         float const speed = 0.8f * std::pow(0.78f, static_cast<float>(i - 1)) * sample(0.95f, 1.05f);
 
         bodies.push_back({
             .radius = radius * sceneScale,
-            .speed = speed,
             .color = colors[i - 1],
+            .speed = speed,
             .orbitRadius = orbitRadius * sceneScale,
             .orbitPhase = phase,
-            .parentIndex = 0,
         });
     }
 
@@ -99,12 +94,16 @@ std::vector<CelestialBody> generateScene(uint32_t seed) {
 
     bodies.push_back({
         .radius = bodies[4].radius * 0.3f,
-        .speed = 1.5f,
         .color = {0.85f, 0.85f, 0.9f, 1.f},
+        .speed = 1.5f,
         .orbitRadius = bodies[4].radius * 4.f,
         .orbitPhase = sample(0.f, tau),
         .parentIndex = 4,
     });
+
+    for (auto &body : bodies) {
+        body.materialSeed = sample(0.f, 1000.f);
+    }
 
     return bodies;
 }

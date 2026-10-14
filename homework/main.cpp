@@ -24,6 +24,7 @@ struct Immediates {
     math::vector4f color;
     uint32_t isSun;
     float time;
+    float materialSeed;
 };
 
 template <typename T>
@@ -376,6 +377,7 @@ int main() try {
                     .color = planet.color,
                     .isSun = i == 0 ? 1u : 0u,
                     .time = time,
+                    .materialSeed = planet.materialSeed,
                 };
                 wgpuRenderPassEncoderSetImmediates(renderPass, 0, &immediates, sizeof(immediates));
                 wgpuRenderPassEncoderDrawIndexed(renderPass, celestialSphere.indices.size(), 1, 0, 0, 0);

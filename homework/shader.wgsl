@@ -3,6 +3,7 @@ struct Immediates {
     color: vec4f,
     isSun: u32,
     time: f32,
+    materialSeed: f32,
 }
 
 var<immediate> immediates: Immediates;
@@ -77,20 +78,28 @@ fn sunColor(localPosition: vec3f, time: f32) -> vec3f {
     return mix(base, hot, smoothstep(0.60, 0.82, heat));
 }
 
+fn planetColor(localPosition: vec3f, color: vec3f, seed: f32) -> vec3f {
+    let p = normalize(localPosition);
+    let offset = vec3f(seed, seed * 0.37, seed * 0.73);
+    let patches = noise3(p * 6.0 + offset);
+    return color * mix(0.55, 1.0, patches);
+}
+
 @fragment
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
     if immediates.isSun == 1 {
         return vec4f(sunColor(input.localPosition, immediates.time), 1.0);
     }
 
-    let ambient = 0.1;
+    let ambient = 0.2;
     let normal = normalize(input.worldNormal);
     let directionToSun = normalize(-input.worldPosition);
 
     let diffuse = max(dot(normal, directionToSun), 0.0);
+    let color = planetColor(input.localPosition, immediates.color.rgb, immediates.materialSeed);
 
     return vec4f(
-        immediates.color.rgb * (ambient + diffuse),
+        color * (ambient + diffuse),
         immediates.color.a
     );
 }
