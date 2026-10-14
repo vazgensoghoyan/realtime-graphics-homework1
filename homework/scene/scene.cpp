@@ -64,7 +64,7 @@ std::vector<CelestialBody> generateScene(uint32_t seed) {
     std::shuffle(colors.begin(), colors.end(), random);
 
     std::vector<CelestialBody> bodies;
-    bodies.reserve(planetCount + 2);
+    bodies.reserve(planetCount + 4);
 
     // adding SUN
 
@@ -99,6 +99,24 @@ std::vector<CelestialBody> generateScene(uint32_t seed) {
         .orbitRadius = bodies[4].radius * 4.f,
         .orbitPhase = sample(0.f, tau),
         .parentIndex = 4,
+    });
+
+    bodies.push_back({
+        .radius = bodies[6].radius * 0.25f,
+        .color = {0.8f, 0.85f, 0.95f, 1.f},
+        .speed = 1.5f,
+        .orbitRadius = bodies[6].radius * 2.f,
+        .orbitPhase = sample(0.f, tau),
+        .parentIndex = 6,
+    });
+
+    bodies.push_back({
+        .radius = bodies[6].radius * 0.2f,
+        .color = {0.95f, 0.8f, 0.65f, 1.f},
+        .speed = 0.9f,
+        .orbitRadius = bodies[6].radius * 3.5f,
+        .orbitPhase = sample(0.f, tau),
+        .parentIndex = 6,
     });
 
     for (auto &body : bodies) {
