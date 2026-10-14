@@ -18,7 +18,7 @@ math::vector3f CelestialBody::position(float time, const std::vector<CelestialBo
         if (depth >= bodies.size())
             throw std::invalid_argument("Cycle in celestial body parents");
 
-        float const angle = body->orbitPhase + body->speed * time;
+        const float angle = body->orbitPhase + body->speed * time;
 
         worldPosition += math::vector3f{
             body->orbitRadius * std::cos(angle),
@@ -33,7 +33,10 @@ math::vector3f CelestialBody::position(float time, const std::vector<CelestialBo
 }
 
 math::matrix4f CelestialBody::modelMatrix(float time, const std::vector<CelestialBody>& bodies) const {
-    return math::translation(position(time, bodies)) * math::scale(math::vector3f{radius, radius, radius});
+    const float spinAngle = spinSpeed * time;
+    return math::translation(position(time, bodies))
+         * math::rotation_xz(spinAngle)
+         * math::scale(math::vector3f{radius, radius, radius});
 }
 
 std::vector<CelestialBody> generateScene(uint32_t seed) {
@@ -121,6 +124,10 @@ std::vector<CelestialBody> generateScene(uint32_t seed) {
 
     for (auto &body : bodies) {
         body.materialSeed = sample(0.f, 1000.f);
+    }
+
+    for (size_t i = 0; i < bodies.size(); ++i) {
+        bodies[i].spinSpeed = i == 0 ? 0.2f : sample(0.35f, 1.2f);
     }
 
     return bodies;

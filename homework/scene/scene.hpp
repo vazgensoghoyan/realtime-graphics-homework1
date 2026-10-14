@@ -9,6 +9,8 @@ struct CelestialBody {
     float radius;
     math::vector4f color;
 
+    float spinSpeed;
+
     float speed = 0.f;
 
     float orbitRadius = 0.f;
