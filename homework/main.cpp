@@ -65,6 +65,11 @@ WGPURenderPipeline createPipeline(WGPUDevice device, WGPUShaderModule shaderModu
     vertexLayout.attributeCount = 1;
     vertexLayout.attributes = &positionAttribute;
 
+    WGPUDepthStencilState depthState = WGPU_DEPTH_STENCIL_STATE_INIT;
+    depthState.format = WGPUTextureFormat_Depth24Plus;
+    depthState.depthWriteEnabled = WGPUOptionalBool_True;
+    depthState.depthCompare = WGPUCompareFunction_Less;
+
     WGPURenderPipelineDescriptor renderPipelineDescriptor = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
     renderPipelineDescriptor.layout = pipelineLayout;
     renderPipelineDescriptor.vertex.module = shaderModule;
@@ -75,6 +80,7 @@ WGPURenderPipeline createPipeline(WGPUDevice device, WGPUShaderModule shaderModu
     renderPipelineDescriptor.primitive.frontFace = WGPUFrontFace_CCW;
     renderPipelineDescriptor.primitive.cullMode = WGPUCullMode_Back;
     renderPipelineDescriptor.fragment = &fragmentState;
+    renderPipelineDescriptor.depthStencil = &depthState;
 
     WGPURenderPipeline renderPipeline = wgpuDeviceCreateRenderPipeline(device, &renderPipelineDescriptor);
     wgpuPipelineLayoutRelease(pipelineLayout);
@@ -91,6 +97,9 @@ int main() try {
     ObjMesh const sphere = generateSphere(32, 16);
     WGPUBuffer vertexBuffer = loadBuffer(app.device(), app.queue(), sphere.vertices, WGPUBufferUsage_Vertex);
     WGPUBuffer indexBuffer = loadBuffer(app.device(), app.queue(), sphere.indices, WGPUBufferUsage_Index);
+
+    WGPUTexture depthBuffer = nullptr;
+    WGPUTextureView depthView = nullptr;
 
     auto lastFrameStart = std::chrono::high_resolution_clock::now();
     float time = 0.f;
@@ -122,6 +131,26 @@ int main() try {
             continue;
         }
 
+        const bool resized = !depthBuffer || wgpuTextureGetWidth(depthBuffer) != app.width() || wgpuTextureGetHeight(depthBuffer) != app.height();
+
+        if (resized) {
+            if (depthView) wgpuTextureViewRelease(depthView);
+            if (depthBuffer) wgpuTextureRelease(depthBuffer);
+
+            WGPUExtent3D extent = WGPU_EXTENT_3D_INIT;
+            extent.width = app.width();
+            extent.height = app.height();
+
+            WGPUTextureDescriptor descriptor = WGPU_TEXTURE_DESCRIPTOR_INIT;
+            descriptor.dimension = WGPUTextureDimension_2D;
+            descriptor.size = extent;
+            descriptor.format = WGPUTextureFormat_Depth24Plus;
+            descriptor.usage = WGPUTextureUsage_RenderAttachment;
+
+            depthBuffer = wgpuDeviceCreateTexture(app.device(), &descriptor);
+            depthView = wgpuTextureCreateView(depthBuffer, nullptr);
+        }
+
         auto const now = std::chrono::high_resolution_clock::now();
         float const dt = std::chrono::duration<float>(now - lastFrameStart).count();
         time += dt;
@@ -142,9 +171,16 @@ int main() try {
         colorAttachment.storeOp = WGPUStoreOp_Store;
         colorAttachment.clearValue = {0.01, 0.02, 0.03, 1.0};
 
+        WGPURenderPassDepthStencilAttachment depthAttachment = WGPU_RENDER_PASS_DEPTH_STENCIL_ATTACHMENT_INIT;
+        depthAttachment.view = depthView;
+        depthAttachment.depthLoadOp = WGPULoadOp_Clear;
+        depthAttachment.depthStoreOp = WGPUStoreOp_Discard;
+        depthAttachment.depthClearValue = 1.f;
+
         WGPURenderPassDescriptor renderPassDescriptor = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
         renderPassDescriptor.colorAttachmentCount = 1;
         renderPassDescriptor.colorAttachments = &colorAttachment;
+        renderPassDescriptor.depthStencilAttachment = &depthAttachment;
         WGPURenderPassEncoder renderPass = wgpuCommandEncoderBeginRenderPass(encoder, &renderPassDescriptor);
 
         wgpuRenderPassEncoderSetPipeline(renderPass, renderPipeline);
@@ -171,8 +207,12 @@ int main() try {
         wgpuTextureRelease(surfaceTexture->texture);
     }
 
+    if (depthView) wgpuTextureViewRelease(depthView);
+    if (depthBuffer) wgpuTextureRelease(depthBuffer);
+
     wgpuBufferRelease(vertexBuffer);
     wgpuBufferRelease(indexBuffer);
+
     wgpuRenderPipelineRelease(renderPipeline);
     wgpuShaderModuleRelease(shaderModule);
 
