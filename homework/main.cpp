@@ -1,6 +1,9 @@
 #include <wgpu_app.hpp>
 #include <file_utils.hpp>
 #include <obj_loader.hpp>
+#include <sphere.hpp>
+#include <math/affine.hpp>
+#include <math/projection.hpp>
 
 #include <webgpu.h>
 
@@ -11,6 +14,16 @@
 #include <unordered_set>
 
 static std::filesystem::path const projectRoot = PROJECT_ROOT;
+
+template <typename T>
+WGPUBuffer loadBuffer(WGPUDevice device, WGPUQueue queue, const std::vector<T>& data, WGPUBufferUsage usage) {
+    WGPUBufferDescriptor descriptor = WGPU_BUFFER_DESCRIPTOR_INIT;
+    descriptor.size = data.size() * sizeof(T);
+    descriptor.usage = usage | WGPUBufferUsage_CopyDst;
+    WGPUBuffer buffer = wgpuDeviceCreateBuffer(device, &descriptor);
+    wgpuQueueWriteBuffer(queue, buffer, 0, data.data(), descriptor.size);
+    return buffer;
+}
 
 WGPUShaderModule createShaderModule(WGPUDevice device, std::filesystem::path const &path) {
     auto const source = loadFile(path);
@@ -27,7 +40,7 @@ WGPUShaderModule createShaderModule(WGPUDevice device, std::filesystem::path con
 WGPURenderPipeline createPipeline(WGPUDevice device, WGPUShaderModule shaderModule,
                                   WGPUTextureFormat surfaceFormat) {
     WGPUPipelineLayoutDescriptor pipelineLayoutDescriptor = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
-    pipelineLayoutDescriptor.immediateSize = 128;
+    pipelineLayoutDescriptor.immediateSize = 64;
 
     WGPUPipelineLayout pipelineLayout = wgpuDeviceCreatePipelineLayout(device, &pipelineLayoutDescriptor);
 
@@ -41,11 +54,26 @@ WGPURenderPipeline createPipeline(WGPUDevice device, WGPUShaderModule shaderModu
     fragmentState.targetCount = 1;
     fragmentState.targets = &colorTargetState;
 
+    WGPUVertexAttribute positionAttribute = WGPU_VERTEX_ATTRIBUTE_INIT;
+    positionAttribute.offset = offsetof(ObjVertex, position);
+    positionAttribute.shaderLocation = 0;
+    positionAttribute.format = WGPUVertexFormat_Float32x3;
+
+    WGPUVertexBufferLayout vertexLayout = WGPU_VERTEX_BUFFER_LAYOUT_INIT;
+    vertexLayout.arrayStride = sizeof(ObjVertex);
+    vertexLayout.stepMode = WGPUVertexStepMode_Vertex;
+    vertexLayout.attributeCount = 1;
+    vertexLayout.attributes = &positionAttribute;
+
     WGPURenderPipelineDescriptor renderPipelineDescriptor = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
     renderPipelineDescriptor.layout = pipelineLayout;
     renderPipelineDescriptor.vertex.module = shaderModule;
     renderPipelineDescriptor.vertex.entryPoint = {"vertexMain", WGPU_STRLEN};
+    renderPipelineDescriptor.vertex.bufferCount = 1;
+    renderPipelineDescriptor.vertex.buffers = &vertexLayout;
     renderPipelineDescriptor.primitive.topology = WGPUPrimitiveTopology_TriangleList;
+    renderPipelineDescriptor.primitive.frontFace = WGPUFrontFace_CCW;
+    renderPipelineDescriptor.primitive.cullMode = WGPUCullMode_Back;
     renderPipelineDescriptor.fragment = &fragmentState;
 
     WGPURenderPipeline renderPipeline = wgpuDeviceCreateRenderPipeline(device, &renderPipelineDescriptor);
@@ -55,12 +83,14 @@ WGPURenderPipeline createPipeline(WGPUDevice device, WGPUShaderModule shaderModu
 }
 
 int main() try {
-    WgpuApp app("Practice04", 1280, 720, true);
+    WgpuApp app("Homework 1", 1280, 720, true);
 
     WGPUShaderModule shaderModule = createShaderModule(app.device(), projectRoot / "shader.wgsl");
     WGPURenderPipeline renderPipeline = createPipeline(app.device(), shaderModule, app.surfaceFormat());
 
-    ObjMesh bunny = loadObj(projectRoot / "bunny.obj");
+    ObjMesh const sphere = generateSphere(32, 16);
+    WGPUBuffer vertexBuffer = loadBuffer(app.device(), app.queue(), sphere.vertices, WGPUBufferUsage_Vertex);
+    WGPUBuffer indexBuffer = loadBuffer(app.device(), app.queue(), sphere.indices, WGPUBufferUsage_Index);
 
     auto lastFrameStart = std::chrono::high_resolution_clock::now();
     float time = 0.f;
@@ -97,26 +127,10 @@ int main() try {
         time += dt;
         lastFrameStart = now;
 
-        math::matrix4f const model{
-            1.f, 0.f, 0.f, 0.f,
-            0.f, 1.f, 0.f, 0.f,
-            0.f, 0.f, 1.f, 0.f,
-            0.f, 0.f, 0.f, 1.f,
-        };
-
-        math::matrix4f const view{
-            1.f, 0.f, 0.f, 0.f,
-            0.f, 1.f, 0.f, 0.f,
-            0.f, 0.f, 1.f, 0.f,
-            0.f, 0.f, 0.f, 1.f,
-        };
-
-        math::matrix4f const projection{
-            1.f, 0.f, 0.f, 0.f,
-            0.f, 1.f, 0.f, 0.f,
-            0.f, 0.f, 1.f, 0.f,
-            0.f, 0.f, 0.f, 1.f,
-        };
+        math::matrix4f const view = math::translation(math::vector3f{0.f, 0.f, -3.f});
+        math::matrix4f const projection = math::perspective(
+            std::numbers::pi_v<float> / 3.f,
+            static_cast<float>(app.width()) / app.height(), 0.1f, 100.f);
 
         WGPUTextureView targetView = wgpuTextureCreateView(surfaceTexture->texture, nullptr);
 
@@ -135,12 +149,12 @@ int main() try {
 
         wgpuRenderPassEncoderSetPipeline(renderPass, renderPipeline);
 
-        auto modelTranspose = math::transpose(model);
         auto viewProjectionTranspose = math::transpose(projection * view);
-        wgpuRenderPassEncoderSetImmediates(renderPass, 0, &modelTranspose, sizeof(modelTranspose));
-        wgpuRenderPassEncoderSetImmediates(renderPass, sizeof(modelTranspose), &viewProjectionTranspose, sizeof(viewProjectionTranspose));
+        wgpuRenderPassEncoderSetImmediates(renderPass, 0, &viewProjectionTranspose, sizeof(viewProjectionTranspose));
 
-        // wgpuRenderPassEncoderDrawIndexed(...)
+        wgpuRenderPassEncoderSetVertexBuffer(renderPass, 0, vertexBuffer, 0, WGPU_WHOLE_SIZE);
+        wgpuRenderPassEncoderSetIndexBuffer(renderPass, indexBuffer, WGPUIndexFormat_Uint32, 0, WGPU_WHOLE_SIZE);
+        wgpuRenderPassEncoderDrawIndexed(renderPass, static_cast<uint32_t>(sphere.indices.size()), 1, 0, 0, 0);
 
         wgpuRenderPassEncoderEnd(renderPass);
         wgpuRenderPassEncoderRelease(renderPass);
@@ -157,6 +171,8 @@ int main() try {
         wgpuTextureRelease(surfaceTexture->texture);
     }
 
+    wgpuBufferRelease(vertexBuffer);
+    wgpuBufferRelease(indexBuffer);
     wgpuRenderPipelineRelease(renderPipeline);
     wgpuShaderModuleRelease(shaderModule);
 

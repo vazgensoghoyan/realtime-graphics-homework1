@@ -1,18 +1,10 @@
 #pragma once
 
-#include <math/aliases.hpp>
+#include <obj_loader.hpp>
 
 #include <cstdint>
-#include <vector>
 
-struct SphereVertex {
-    math::vector3f position;
-    math::vector3f normal;
-};
-
-struct SphereMesh {
-    std::vector<SphereVertex> vertices;
-    std::vector<std::uint32_t> indices;
-};
-
-SphereMesh generateSphere(std::uint32_t sectors, std::uint32_t stacks);
+// Unit sphere centered at the origin, with Y as the polar axis.
+// sectors >= 3 longitude segments; stacks >= 2 pole-to-pole segments.
+// Vertices are shared at the seam and poles; texture coordinates are zero.
+ObjMesh generateSphere(uint32_t sectors, uint32_t stacks);
