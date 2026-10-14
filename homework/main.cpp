@@ -216,7 +216,7 @@ int main() try {
     WGPUShaderModule starsShaderModule = createShaderModule(app.device(), projectRoot / "stars.wgsl");
     WGPURenderPipeline starsRenderPipeline = createStarPipeline(app.device(), starsShaderModule, app.surfaceFormat());
 
-    const ObjMesh starSphere = generateSphere(3, 4);
+    const ObjMesh starSphere = generateSphere(8, 12);
     WGPUBuffer starVertexBuffer = loadBuffer(app.device(), app.queue(), starSphere.vertices, WGPUBufferUsage_Vertex);
     WGPUBuffer starIndexBuffer = loadBuffer(app.device(), app.queue(), starSphere.indices, WGPUBufferUsage_Index);
     WGPUBuffer starInstanceBuffer = loadBuffer(app.device(), app.queue(), stars, WGPUBufferUsage_Vertex);

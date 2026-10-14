@@ -6,7 +6,7 @@
 #include <random>
 
 std::vector<StarInstance> generateStars(uint32_t seed, uint32_t radius) {
-    constexpr size_t starsCount = 1000;
+    constexpr size_t starsCount = 3000;
 
     std::mt19937 random(seed);
 
@@ -17,6 +17,10 @@ std::vector<StarInstance> generateStars(uint32_t seed, uint32_t radius) {
     auto phiDistribution = [&random]() {
         constexpr float tau = 2 * std::numbers::pi_v<float>;
         return std::uniform_real_distribution<float>(0, tau)(random);
+    };
+
+    auto radiusDistribution = [&random]() {
+        return std::uniform_real_distribution<float>(0.04f, 0.10f)(random);
     };
 
     std::vector<StarInstance> stars;
@@ -34,7 +38,7 @@ std::vector<StarInstance> generateStars(uint32_t seed, uint32_t radius) {
         };
 
         stars.push_back(StarInstance{
-            .radius = 0.08f,
+            .radius = radiusDistribution(),
             .center = center,
         });
     }
