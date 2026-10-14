@@ -2,8 +2,7 @@
 #include <file_utils.hpp>
 #include <obj_loader.hpp>
 #include <sphere.hpp>
-#include <math/affine.hpp>
-#include <math/projection.hpp>
+#include "camera.hpp"
 
 #include <webgpu.h>
 
@@ -11,7 +10,6 @@
 #include <exception>
 #include <filesystem>
 #include <iostream>
-#include <unordered_set>
 
 static std::filesystem::path const projectRoot = PROJECT_ROOT;
 
@@ -91,6 +89,9 @@ WGPURenderPipeline createPipeline(WGPUDevice device, WGPUShaderModule shaderModu
 int main() try {
     WgpuApp app("Homework 1", 1280, 720, true);
 
+    // for convenient moving
+    app.grab_mouse(true);
+
     WGPUShaderModule shaderModule = createShaderModule(app.device(), projectRoot / "shader.wgsl");
     WGPURenderPipeline renderPipeline = createPipeline(app.device(), shaderModule, app.surfaceFormat());
 
@@ -104,12 +105,13 @@ int main() try {
     auto lastFrameStart = std::chrono::high_resolution_clock::now();
     float time = 0.f;
 
-    std::unordered_set<SDL_Keycode> keydown;
+    Camera camera;
 
     bool running = true;
     while (running) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
+            camera.handleEvent(event);
             switch (event.type) {
             case SDL_EVENT_QUIT:
                 running = false;
@@ -118,13 +120,13 @@ int main() try {
                 app.resize(event.window.data1, event.window.data2);
                 break;
             case SDL_EVENT_KEY_DOWN:
-                keydown.insert(event.key.key);
-                break;
-            case SDL_EVENT_KEY_UP:
-                keydown.erase(event.key.key);
+                // way to close the app with cursor pinned
+                if (event.key.key == SDLK_ESCAPE) running = false;
                 break;
             }
         }
+
+        if (!running) break;
 
         std::optional<WGPUSurfaceTexture> surfaceTexture = app.beginFrame();
         if (!surfaceTexture) {
@@ -156,10 +158,9 @@ int main() try {
         time += dt;
         lastFrameStart = now;
 
-        math::matrix4f const view = math::translation(math::vector3f{0.f, 0.f, -3.f});
-        math::matrix4f const projection = math::perspective(
-            std::numbers::pi_v<float> / 3.f,
-            static_cast<float>(app.width()) / app.height(), 0.1f, 100.f);
+        camera.update(dt);
+        math::matrix4f const view = camera.viewMatrix();
+        math::matrix4f const projection = camera.projectionMatrix(static_cast<float>(app.width()) / app.height());
 
         WGPUTextureView targetView = wgpuTextureCreateView(surfaceTexture->texture, nullptr);
 
