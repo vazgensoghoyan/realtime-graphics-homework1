@@ -18,6 +18,7 @@ math::matrix4f CelestialBody::modelMatrix(float time) const {
 }
 
 std::vector<CelestialBody> generateScene(uint32_t seed) {
+    constexpr float sceneScale = 0.5f;
     constexpr size_t planetCount = 10;
     constexpr float orbitSpacing = 7.f;
     constexpr float sunRadius = 7.f;
@@ -48,7 +49,7 @@ std::vector<CelestialBody> generateScene(uint32_t seed) {
 
     // Adding SUN
     bodies.push_back({
-        .radius = sunRadius,
+        .radius = sunRadius * sceneScale,
         .speed = 0.f,
         .color = {1.f, 0.8f, 0.15f, 1.f},
         .orbitRadius = 0.f,
@@ -63,10 +64,10 @@ std::vector<CelestialBody> generateScene(uint32_t seed) {
         float const speed = 0.8f * std::pow(0.78f, static_cast<float>(i - 1)) * sample(0.95f, 1.05f);
 
         bodies.push_back({
-            .radius = radius,
+            .radius = radius * sceneScale,
             .speed = speed,
             .color = colors[i - 1],
-            .orbitRadius = orbitRadius,
+            .orbitRadius = orbitRadius * sceneScale,
             .orbitPhase = phase,
         });
     }
