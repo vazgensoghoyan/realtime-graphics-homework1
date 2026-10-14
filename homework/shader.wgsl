@@ -2,6 +2,7 @@
 
 struct Immediates {
     viewProjection: mat4x4f,
+    color: vec4f,
 }
 
 var<immediate> immediates: Immediates;
@@ -13,5 +14,5 @@ fn vertexMain(@location(0) position: vec3f) -> @builtin(position) vec4f {
 
 @fragment
 fn fragmentMain() -> @location(0) vec4f {
-    return vec4f(0.2, 0.6, 1.0, 1.0);
+    return immediates.color;
 }

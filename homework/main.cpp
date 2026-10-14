@@ -3,6 +3,7 @@
 #include <obj_loader.hpp>
 #include <sphere.hpp>
 #include "camera.hpp"
+#include "scene.hpp"
 
 #include <webgpu.h>
 
@@ -10,8 +11,14 @@
 #include <exception>
 #include <filesystem>
 #include <iostream>
+#include <random>
 
 static std::filesystem::path const projectRoot = PROJECT_ROOT;
+
+struct Immediates {
+    math::matrix4f modelViewProjection;
+    math::vector4f color;
+};
 
 template <typename T>
 WGPUBuffer loadBuffer(WGPUDevice device, WGPUQueue queue, const std::vector<T>& data, WGPUBufferUsage usage) {
@@ -38,7 +45,7 @@ WGPUShaderModule createShaderModule(WGPUDevice device, std::filesystem::path con
 WGPURenderPipeline createPipeline(WGPUDevice device, WGPUShaderModule shaderModule,
                                   WGPUTextureFormat surfaceFormat) {
     WGPUPipelineLayoutDescriptor pipelineLayoutDescriptor = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
-    pipelineLayoutDescriptor.immediateSize = 64;
+    pipelineLayoutDescriptor.immediateSize = sizeof(Immediates);
 
     WGPUPipelineLayout pipelineLayout = wgpuDeviceCreatePipelineLayout(device, &pipelineLayoutDescriptor);
 
@@ -98,6 +105,10 @@ int main() try {
     ObjMesh const sphere = generateSphere(32, 16);
     WGPUBuffer vertexBuffer = loadBuffer(app.device(), app.queue(), sphere.vertices, WGPUBufferUsage_Vertex);
     WGPUBuffer indexBuffer = loadBuffer(app.device(), app.queue(), sphere.indices, WGPUBufferUsage_Index);
+
+    const auto seed = std::random_device{}();
+    std::cout << "Scene seed: " << seed << std::endl;
+    const auto planets = generateScene(seed);
 
     WGPUTexture depthBuffer = nullptr;
     WGPUTextureView depthView = nullptr;
@@ -186,12 +197,18 @@ int main() try {
 
         wgpuRenderPassEncoderSetPipeline(renderPass, renderPipeline);
 
-        auto viewProjectionTranspose = math::transpose(projection * view);
-        wgpuRenderPassEncoderSetImmediates(renderPass, 0, &viewProjectionTranspose, sizeof(viewProjectionTranspose));
-
         wgpuRenderPassEncoderSetVertexBuffer(renderPass, 0, vertexBuffer, 0, WGPU_WHOLE_SIZE);
         wgpuRenderPassEncoderSetIndexBuffer(renderPass, indexBuffer, WGPUIndexFormat_Uint32, 0, WGPU_WHOLE_SIZE);
-        wgpuRenderPassEncoderDrawIndexed(renderPass, static_cast<uint32_t>(sphere.indices.size()), 1, 0, 0, 0);
+
+        const auto viewProjection = projection * view;
+        for (auto const &planet : planets) {
+            Immediates const immediates{
+                math::transpose(viewProjection * planet.modelMatrix(time)),
+                planet.color,
+            };
+            wgpuRenderPassEncoderSetImmediates(renderPass, 0, &immediates, sizeof(immediates));
+            wgpuRenderPassEncoderDrawIndexed(renderPass, static_cast<uint32_t>(sphere.indices.size()), 1, 0, 0, 0);
+        }
 
         wgpuRenderPassEncoderEnd(renderPass);
         wgpuRenderPassEncoderRelease(renderPass);
