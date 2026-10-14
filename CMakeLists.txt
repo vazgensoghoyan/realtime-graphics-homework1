@@ -9,4 +9,4 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 add_subdirectory(math)
 add_subdirectory(wgpu_app)
 
-add_subdirectory(src)
+add_subdirectory(homework)
