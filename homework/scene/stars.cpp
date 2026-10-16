@@ -5,9 +5,7 @@
 #include <numbers>
 #include <random>
 
-std::vector<StarInstance> generateStars(uint32_t seed, uint32_t radius) {
-    constexpr size_t starsCount = 3000;
-
+std::vector<StarInstance> generateStars(uint32_t seed, uint32_t starsCount, uint32_t radius) {
     std::mt19937 random(seed);
 
     auto heightDistribution = [&random]() {

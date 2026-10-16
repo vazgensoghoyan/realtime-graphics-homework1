@@ -252,12 +252,12 @@ int main() try {
     std::cout << "Scene seed: " << seed << std::endl;
 
     // initialization for stars
-    const auto stars = generateStars(seed);
+    const auto stars = generateStars(seed, 5000);
 
     WGPUShaderModule starsShaderModule = createShaderModule(app.device(), projectRoot / "stars.wgsl");
     WGPURenderPipeline starsRenderPipeline = createStarPipeline(app.device(), starsShaderModule, app.surfaceFormat());
 
-    const ObjMesh starSphere = generateSphere(8, 12);
+    const ObjMesh starSphere = generateSphere(6, 4);
     WGPUBuffer starVertexBuffer = loadBuffer(app.device(), app.queue(), starSphere.vertices, WGPUBufferUsage_Vertex);
     WGPUBuffer starIndexBuffer = loadBuffer(app.device(), app.queue(), starSphere.indices, WGPUBufferUsage_Index);
     WGPUBuffer starInstanceBuffer = loadBuffer(app.device(), app.queue(), stars, WGPUBufferUsage_Vertex);

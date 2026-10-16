@@ -11,4 +11,4 @@ struct StarInstance {
 };
 
 // generated on a sphere
-std::vector<StarInstance> generateStars(uint32_t seed, uint32_t radius = 50);
+std::vector<StarInstance> generateStars(uint32_t seed, uint32_t starsCount, uint32_t radius = 50);
