@@ -4,6 +4,7 @@
 
 #include "stars.hpp"
 #include "scene.hpp"
+#include "colors.hpp"
 #include "sphere.hpp"
 #include "ring.hpp"
 #include "camera.hpp"
@@ -19,7 +20,6 @@
 #include <filesystem>
 #include <iostream>
 #include <random>
-#include <string_view>
 
 static std::filesystem::path const projectRoot = PROJECT_ROOT;
 
@@ -28,7 +28,6 @@ struct Immediates {
     math::vector4f color;
     uint32_t isSun;
     float time;
-    float materialSeed;
 };
 
 template <typename T>
@@ -115,9 +114,10 @@ WGPURenderPipeline createStarPipeline(WGPUDevice device, WGPUShaderModule shader
 
 WGPURenderPipeline createPipeline(WGPUDevice device, WGPUShaderModule shaderModule,
                                   WGPUTextureFormat surfaceFormat, WGPUBindGroupLayout cameraLayout,
-                                  std::string_view fragmentEntryPoint = "fragmentMain",
+                                  bool ringFragment = false,
                                   WGPUCullMode cullMode = WGPUCullMode_Back,
-                                  bool alphaBlend = false) {
+                                  bool alphaBlend = false,
+                                  bool vertexColors = true) {
     WGPUPipelineLayoutDescriptor pipelineLayoutDescriptor = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
     pipelineLayoutDescriptor.immediateSize = sizeof(Immediates);
     pipelineLayoutDescriptor.bindGroupLayoutCount = 1;
@@ -136,7 +136,7 @@ WGPURenderPipeline createPipeline(WGPUDevice device, WGPUShaderModule shaderModu
 
     WGPUFragmentState fragmentState = WGPU_FRAGMENT_STATE_INIT;
     fragmentState.module = shaderModule;
-    fragmentState.entryPoint = {fragmentEntryPoint.data(), fragmentEntryPoint.size()};
+    fragmentState.entryPoint = {ringFragment ? "ringFragmentMain" : "fragmentMain", WGPU_STRLEN};
     fragmentState.targetCount = 1;
     fragmentState.targets = &colorTargetState;
 
@@ -150,11 +150,21 @@ WGPURenderPipeline createPipeline(WGPUDevice device, WGPUShaderModule shaderModu
     attributes[1].shaderLocation = 1;
     attributes[1].format = WGPUVertexFormat_Float32x3;
 
-    WGPUVertexBufferLayout vertexLayout = WGPU_VERTEX_BUFFER_LAYOUT_INIT;
-    vertexLayout.arrayStride = sizeof(ObjVertex);
-    vertexLayout.stepMode = WGPUVertexStepMode_Vertex;
-    vertexLayout.attributeCount = 2;
-    vertexLayout.attributes = attributes;
+    WGPUVertexAttribute colorAttribute = WGPU_VERTEX_ATTRIBUTE_INIT;
+    colorAttribute.shaderLocation = 2;
+    colorAttribute.format = WGPUVertexFormat_Float32x4;
+
+    WGPUVertexBufferLayout vertexLayouts[2];
+    vertexLayouts[0] = WGPU_VERTEX_BUFFER_LAYOUT_INIT;
+    vertexLayouts[0].arrayStride = sizeof(ObjVertex);
+    vertexLayouts[0].stepMode = WGPUVertexStepMode_Vertex;
+    vertexLayouts[0].attributeCount = 2;
+    vertexLayouts[0].attributes = attributes;
+    vertexLayouts[1] = WGPU_VERTEX_BUFFER_LAYOUT_INIT;
+    vertexLayouts[1].arrayStride = sizeof(math::vector4f);
+    vertexLayouts[1].stepMode = WGPUVertexStepMode_Vertex;
+    vertexLayouts[1].attributeCount = 1;
+    vertexLayouts[1].attributes = &colorAttribute;
 
     WGPUDepthStencilState depthState = WGPU_DEPTH_STENCIL_STATE_INIT;
     depthState.format = WGPUTextureFormat_Depth24Plus;
@@ -164,9 +174,9 @@ WGPURenderPipeline createPipeline(WGPUDevice device, WGPUShaderModule shaderModu
     WGPURenderPipelineDescriptor renderPipelineDescriptor = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
     renderPipelineDescriptor.layout = pipelineLayout;
     renderPipelineDescriptor.vertex.module = shaderModule;
-    renderPipelineDescriptor.vertex.entryPoint = {"vertexMain", WGPU_STRLEN};
-    renderPipelineDescriptor.vertex.bufferCount = 1;
-    renderPipelineDescriptor.vertex.buffers = &vertexLayout;
+    renderPipelineDescriptor.vertex.entryPoint = {vertexColors ? "vertexMain" : "uncoloredVertexMain", WGPU_STRLEN};
+    renderPipelineDescriptor.vertex.bufferCount = vertexColors ? 2 : 1;
+    renderPipelineDescriptor.vertex.buffers = vertexLayouts;
     renderPipelineDescriptor.primitive.topology = WGPUPrimitiveTopology_TriangleList;
     renderPipelineDescriptor.primitive.frontFace = WGPUFrontFace_CCW;
     renderPipelineDescriptor.primitive.cullMode = cullMode;
@@ -257,8 +267,11 @@ int main() try {
     WGPUBindGroupLayout cameraLayout = createCameraBindGroupLayout(app.device());
     WGPURenderPipeline renderPipeline = createPipeline(app.device(), shaderModule, app.surfaceFormat(), cameraLayout);
 
+    WGPURenderPipeline sunRenderPipeline = createPipeline(app.device(), shaderModule, app.surfaceFormat(),
+                                                          cameraLayout, false, WGPUCullMode_Back, false, false);
+
     WGPURenderPipeline ringRenderPipeline = createPipeline(app.device(), shaderModule, app.surfaceFormat(),
-                                                           cameraLayout, "ringFragmentMain", WGPUCullMode_None, true);
+                                                           cameraLayout, true, WGPUCullMode_None, true, false);
 
     const ObjMesh ringMesh = generateRing(1.4f, 2.4f);
     WGPUBuffer ringVertexBuffer = loadBuffer(app.device(), app.queue(), ringMesh.vertices, WGPUBufferUsage_Vertex);
@@ -275,6 +288,17 @@ int main() try {
     WGPUBindGroup cameraBindGroup = createBindGroup(app.device(), cameraLayout, cameraMatrixBuffer);
 
     const auto planets = generateScene(seed);
+
+    // sun we color in shader procedural
+    std::vector<WGPUBuffer> colorBuffers(planets.size(), nullptr);
+    for (std::size_t i = 1; i < planets.size(); ++i) {
+        std::vector<math::vector4f> colors;
+        colors.reserve(celestialSphere.vertices.size());
+        for (const auto &vertex : celestialSphere.vertices) {
+            colors.push_back(bodyVertexColor(vertex.position, planets[i].color, planets[i].materialSeed));
+        }
+        colorBuffers[i] = loadBuffer(app.device(), app.queue(), colors, WGPUBufferUsage_Vertex);
+    }
 
     WGPUTexture depthBuffer = nullptr;
     WGPUTextureView depthView = nullptr;
@@ -402,7 +426,6 @@ int main() try {
             renderPassDescriptor.depthStencilAttachment = &depthAttachment;
             WGPURenderPassEncoder renderPass = wgpuCommandEncoderBeginRenderPass(encoder, &renderPassDescriptor);
 
-            wgpuRenderPassEncoderSetPipeline(renderPass, renderPipeline);
             wgpuRenderPassEncoderSetBindGroup(renderPass, 0, cameraBindGroup, 0, nullptr);
 
             wgpuRenderPassEncoderSetVertexBuffer(renderPass, 0, celestialVertexBuffer, 0, WGPU_WHOLE_SIZE);
@@ -416,8 +439,9 @@ int main() try {
                     .color = planet.color,
                     .isSun = i == 0 ? 1u : 0u,
                     .time = time,
-                    .materialSeed = planet.materialSeed,
                 };
+                wgpuRenderPassEncoderSetPipeline(renderPass, i == 0 ? sunRenderPipeline : renderPipeline);
+                if (i != 0) wgpuRenderPassEncoderSetVertexBuffer(renderPass, 1, colorBuffers[i], 0, WGPU_WHOLE_SIZE);
                 wgpuRenderPassEncoderSetImmediates(renderPass, 0, &immediates, sizeof(immediates));
                 wgpuRenderPassEncoderDrawIndexed(renderPass, celestialSphere.indices.size(), 1, 0, 0, 0);
             }
@@ -431,8 +455,6 @@ int main() try {
                     .model = math::transpose(ringModel),
                     .color = ringPlanet.color * 0.65f + math::vector4f{0.35f, 0.35f, 0.35f, 0.35f},
                     .isSun = 0,
-                    .time = time,
-                    .materialSeed = ringPlanet.materialSeed,
                 };
                 wgpuRenderPassEncoderSetPipeline(renderPass, ringRenderPipeline);
                 wgpuRenderPassEncoderSetBindGroup(renderPass, 0, cameraBindGroup, 0, nullptr);
@@ -479,6 +501,9 @@ int main() try {
 
     wgpuBufferRelease(celestialVertexBuffer);
     wgpuBufferRelease(celestialIndexBuffer);
+    for (auto buffer : colorBuffers) {
+        if (buffer) wgpuBufferRelease(buffer);
+    }
 
     wgpuBufferRelease(ringVertexBuffer);
     wgpuBufferRelease(ringIndexBuffer);
@@ -493,6 +518,7 @@ int main() try {
     wgpuShaderModuleRelease(starsShaderModule);
 
     wgpuRenderPipelineRelease(renderPipeline);
+    wgpuRenderPipelineRelease(sunRenderPipeline);
     wgpuShaderModuleRelease(shaderModule);
 
 } catch (const std::exception &e) {

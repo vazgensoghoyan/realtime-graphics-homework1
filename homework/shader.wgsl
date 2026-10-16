@@ -3,7 +3,6 @@ struct Immediates {
     color: vec4f,
     isSun: u32,
     time: f32,
-    materialSeed: f32,
 }
 
 var<immediate> immediates: Immediates;
@@ -19,10 +18,10 @@ struct VertexOutput {
     @location(0) worldPosition: vec3f,
     @location(1) worldNormal: vec3f,
     @location(2) localPosition: vec3f,
+    @location(3) color: vec4f,
 }
 
-@vertex
-fn vertexMain(@location(0) position: vec3f, @location(1) normal: vec3f) -> VertexOutput {
+fn transformVertex(position: vec3f, normal: vec3f, color: vec4f) -> VertexOutput {
     var output: VertexOutput;
 
     let worldPosition = immediates.model * vec4f(position, 1.0);
@@ -32,8 +31,20 @@ fn vertexMain(@location(0) position: vec3f, @location(1) normal: vec3f) -> Verte
     output.worldNormal = (immediates.model * vec4f(normal, 0.0)).xyz;
 
     output.localPosition = position;
+    output.color = color;
 
     return output;
+}
+
+@vertex
+fn vertexMain(@location(0) position: vec3f, @location(1) normal: vec3f,
+              @location(2) color: vec4f) -> VertexOutput {
+    return transformVertex(position, normal, color);
+}
+
+@vertex
+fn uncoloredVertexMain(@location(0) position: vec3f, @location(1) normal: vec3f) -> VertexOutput {
+    return transformVertex(position, normal, immediates.color);
 }
 
 fn hash3(p: vec3f) -> f32 {
@@ -78,13 +89,6 @@ fn sunColor(localPosition: vec3f, time: f32) -> vec3f {
     return mix(base, hot, smoothstep(0.60, 0.82, heat));
 }
 
-fn planetColor(localPosition: vec3f, color: vec3f, seed: f32) -> vec3f {
-    let p = normalize(localPosition);
-    let offset = vec3f(seed, seed * 0.37, seed * 0.73);
-    let patches = noise3(p * 6.0 + offset);
-    return color * mix(0.55, 1.0, patches);
-}
-
 fn sunlightBrightness(worldPosition: vec3f, normal: vec3f) -> f32 {
     let directionToSun = normalize(-worldPosition);
     return 0.2 + max(dot(normalize(normal), directionToSun), 0.0);
@@ -96,11 +100,9 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
         return vec4f(sunColor(input.localPosition, immediates.time), 1.0);
     }
 
-    let color = planetColor(input.localPosition, immediates.color.rgb, immediates.materialSeed);
-
     return vec4f(
-        color * sunlightBrightness(input.worldPosition, input.worldNormal),
-        immediates.color.a
+        input.color.rgb * sunlightBrightness(input.worldPosition, input.worldNormal),
+        input.color.a
     );
 }
 
