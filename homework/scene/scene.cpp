@@ -39,6 +39,15 @@ math::matrix4f CelestialBody::modelMatrix(float time, const std::vector<Celestia
          * math::scale(math::vector3f{radius, radius, radius});
 }
 
+math::vector4f CelestialBody::vertexColor(const math::vector3f &localPosition) const {
+    const auto p = math::normalized(localPosition);
+    const float pattern = std::sin(p[0] * 6.f + materialSeed)
+                        * std::sin(p[1] * 6.f + materialSeed * 0.37f)
+                        * std::sin(p[2] * 6.f + materialSeed * 0.73f);
+    const float brightness = std::lerp(0.55f, 1.f, 0.5f + 0.5f * pattern);
+    return {color[0] * brightness, color[1] * brightness, color[2] * brightness, color[3]};
+}
+
 std::vector<CelestialBody> generateScene(uint32_t seed) {
     constexpr float sceneScale = 0.5f;
     constexpr size_t planetCount = 10;

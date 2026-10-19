@@ -21,6 +21,7 @@ struct CelestialBody {
 
     math::vector3f position(float time, const std::vector<CelestialBody>& bodies) const;
     math::matrix4f modelMatrix(float time, const std::vector<CelestialBody>& bodies) const;
+    math::vector4f vertexColor(const math::vector3f &localPosition) const;
 };
 
 // sun is first; same seed reproduces same scene

@@ -4,7 +4,6 @@
 
 #include "stars.hpp"
 #include "scene.hpp"
-#include "colors.hpp"
 #include "sphere.hpp"
 #include "ring.hpp"
 #include "camera.hpp"
@@ -295,7 +294,7 @@ int main() try {
         std::vector<math::vector4f> colors;
         colors.reserve(celestialSphere.vertices.size());
         for (const auto &vertex : celestialSphere.vertices) {
-            colors.push_back(bodyVertexColor(vertex.position, planets[i].color, planets[i].materialSeed));
+            colors.push_back(planets[i].vertexColor(vertex.position));
         }
         colorBuffers[i] = loadBuffer(app.device(), app.queue(), colors, WGPUBufferUsage_Vertex);
     }
